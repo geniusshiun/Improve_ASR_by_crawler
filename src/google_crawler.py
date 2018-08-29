@@ -17,6 +17,9 @@ from time import sleep
 from urllib import parse as urlparse
 import functools
 import unittest
+import time
+from lxml import html
+import multiprocessing as mp
 
 class ASRdataFetcher(object):
     """Summary of class here.
@@ -41,7 +44,7 @@ class ASRdataFetcher(object):
                     cmnum = round(float(line.strip().split('\t')[-1]),3)
                     if cmnum < score: continue
                     else: inputlist.append(line.strip().split('	')[1])    
-                except Exception as e:
+                except: #Exception as e:
                     pass
         return inputlist
 def myCompare(a,b):
@@ -125,7 +128,6 @@ def reconstruct_search_words(textpath):
     fetcher = ASRdataFetcher()
     keywordlist = short_word_less_32(fetcher,textpath,0.845)
     return {textpath[-11:-3]:keywordlist}
-
 class test_myCompare(unittest.TestCase):
     """ 
 	test myCompare function
@@ -143,8 +145,57 @@ class test_short_word_less_32(unittest.TestCase):
         fetcher = ASRdataFetcher()
         textpath = join(join('..','input_ASR_results'),'A0000525.cm')
         self.assertEqual([text for text in short_word_less_32(fetcher,textpath,0.845) if len(text) > 32], [])
-        
-
+def get_web_url(keyword):
+    """Get web url from google
+    
+    As title
+    
+    Args:
+        keyword: query search words
+    Returns:
+        weburls: web url list
+    """
+    
+    google_url = 'https://www.google.com.tw/search'
+    my_params = {'q':keyword, 'start':0}
+    r = rq.get(google_url,params=my_params)
+    if r.status_code == 200:
+        doc = html.fromstring(r.text)
+        #url_title = doc.xpath('//*[@id="rso"]/div[3]/div/div/div/div/h3/a')
+        soup = BeautifulSoup(r.text,'html.parser')
+        items = soup.select('div.g > h3.r > a[href^="/url"]')
+        #print([urlparse.parse_qs(urlparse.urlparse(i.get('href')).query)["q"][0] for i in items])
+        weburls = [urlparse.parse_qs(urlparse.urlparse(i.get('href')).query)["q"][0] for i in items]
+        weburls = [url for url in weburls if not '.pdf' in url]
+    else: 
+        print(r.status_code)
+        if r.status_code == '503':
+            print('googleban = True')
+            sys.exit()
+    return weburls
+def crawlpage(url):
+    """Get web data by url
+    
+    Consider the encode and parser all data by lxml or beautifulSoup
+    
+    Args:
+        url: web url
+    Returns:
+        data: web data
+    """
+    print(url)
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.99 Safari/537.36'}
+    try:
+        searchweb = rq.get(url,headers= headers,timeout=5)
+        if searchweb.encoding == 'ISO-8859-1':
+            encodings = re.findall('<meta.*content=.*charset=(?P<charset>[^;\s]+)',searchweb.text)
+            if encodings:
+                searchweb.encoding = encodings[0]
+        searchwebsoup = BeautifulSoup(searchweb.text,"lxml")
+        alldata = re.findall('[A-Za-z0-9().% ]*[一-龥]+[A-Za-z0-9().% ]*',str(searchwebsoup.text))
+    except:
+        alldata = ''
+    return alldata
 logger = logging.getLogger('google_crawler')
 logger.setLevel(logging.DEBUG)
 formatter=logging.Formatter('%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s')
@@ -153,19 +204,53 @@ fh.setLevel(logging.INFO)
 fh.setFormatter(formatter)
 logger.addHandler(fh)
 
-
-
 def main():
     # varibales
     input_text_folder = join('..','input_ASR_results')
-    googletopN = '10'
+    #googletopN = '10'
     outputpath = 'crawlresult'
 
     # load from input text path
     input_text_path = [join(input_text_folder,os.path.basename(x)) for x in glob.glob(join(input_text_folder,('*'))) 
                     if '.cm' in x and '.cm2' not in x and '.syl' not in x]
     #print(input_text_path)
-    print([reconstruct_search_words(eachpath) for eachpath in input_text_path])
+    print( [reconstruct_search_words(eachpath) for eachpath in input_text_path][:2])
+    filetoUrls = {}
+    
+    for eachTarget in [reconstruct_search_words(eachpath) for eachpath in input_text_path]:
+        for filename, keywordlist in eachTarget.items():
+            #get web urls from google each 15 seconds
+            n_segment_urls = {}
+            alldata = []
+            for keyword in keywordlist:
+                tStart = time.time()
+                webUrls = get_web_url(keyword) 
+                for url in webUrls:
+                    if url in n_segment_urls:
+                        n_segment_urls[url] += 1
+                        webUrls.remove(url)
+                    else:
+                        n_segment_urls[url] = 1
+                pool = mp.Pool()
+                alldata.extend(pool.map(crawlpage,webUrls))
+                pool.close()
+                pool.join()
+                print(len(alldata))
+                for data in alldata:
+                    if len(data) > 0:
+                        with open(join(join('..',outputpath),filename+'-'+str(alldata.index(data))+'.txt' ),'w',encoding='utf8') as f:
+                            f.write(''.join(data))
+                #use pin yin to transfer data
+                #use match method to find paragraph
+                tEnd = time.time()
+                sleeptime = 15 -int(tEnd-tStart) 
+                if sleeptime > 0:
+                    print('sleep',sleeptime)
+                    time.sleep(sleeptime)
+            
+            #print(eachTarget.keys(),eachTarget.values())
+
+
 if __name__ == "__main__":
     main()
     #unittest.main()
