@@ -1,0 +1,10 @@
+Step by step to match string from ASR result
+
+File used in step:
+- wav_matched/generate_diff.py
+- wav_matched/filter_crawl_result.py
+
+The Python code must be run from its own directory or else it might fail
+To get more info of how to run the code,
+use python3 [code_name] -h
+code_name could be generate_diff.py or filter_crawl_result.py
