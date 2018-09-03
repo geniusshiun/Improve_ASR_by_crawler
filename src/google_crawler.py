@@ -299,7 +299,8 @@ def main():
                         #write ASR result and web data
                         with open('final','a',encoding='utf8') as f:
                             thispath = [path for path in input_text_path if filename in path][0]
-                            f.write(''.join(reconstruct_search_words(thispath,0))+'\t'+data.split('\t')[10]+'\n')
+                            fetch = ASRdataFetcher()
+                            f.write(''.join(fetch.get(thispath,0))+'\t'+data.split('\t')[10]+'\n')
                         [shutil.copy(filename, join(outputpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]    
                         break
                     else:
