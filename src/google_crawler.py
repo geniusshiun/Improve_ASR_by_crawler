@@ -170,7 +170,7 @@ def get_web_url(keyword):
         items = soup.select('div.g > h3.r > a[href^="/url"]')
         #print([urlparse.parse_qs(urlparse.urlparse(i.get('href')).query)["q"][0] for i in items])
         weburls = [urlparse.parse_qs(urlparse.urlparse(i.get('href')).query)["q"][0] for i in items]
-        weburls = [url for url in weburls if not '.pdf' in url and not '.PDF' in url and not '.doc' in url]
+        weburls = [url for url in weburls if not '.pdf' in url and not '.PDF' in url and not '.doc' in url and not '.xls' in url]
     else: 
         print(r.status_code)
         if r.status_code == '503':
@@ -191,11 +191,13 @@ def crawlpage(url):
     #print(url)
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.99 Safari/537.36'}
     try:
-        searchweb = rq.get(url,headers= headers,timeout=5)
+        # add some limit to those continues receive data but too long
+        searchweb = rq.get(url,headers= headers,timeout=3)
         if searchweb.encoding == 'ISO-8859-1':
             encodings = re.findall('<meta.*content=.*charset=(?P<charset>[^;\s]+)',searchweb.text)
             if encodings:
                 searchweb.encoding = encodings[0]
+        # we could use other way to parser the words, faster
         searchwebsoup = BeautifulSoup(searchweb.text,"lxml")
         alldata = re.findall('[A-Za-z0-9().% ]*[一-龥]+[A-Za-z0-9().% ]*',str(searchwebsoup.text))
     except:
@@ -234,14 +236,20 @@ def main():
     
     for eachTarget in [reconstruct_search_words(eachpath) for eachpath in input_text_path]:
         for filename, keywordlist in eachTarget.items():
-            #get web urls from google each 15 seconds
-            n_segment_urls = {}
+            # get web urls from google each 15 seconds
+            logger.info('Start: '+filename)
+            n_segment_urls = {}                 # is there a repetition in urls
             alldata = []
             print(filename,keywordlist)
-            [os.remove(filename) for filename in glob.glob(join(outputpath,('fcr23.ws.re.wav*')))]
+            #if not filename == 'A0000551':
+            #    continue
+            thisTurnData = []
             for keyword in keywordlist:
-                tStart = time.time()
-                webUrls = get_web_url(keyword) 
+                [os.remove(filename) for filename in glob.glob(join(outputpath,('fcr23.ws.re.wav*')))]
+                [os.remove(filename) for filename in glob.glob(join(outputpath,('*.txt')))]
+                [os.remove(filename) for filename in glob.glob(join(outputpath,('*.line')))]
+                tFirstStart = time.time()
+                webUrls = get_web_url(keyword)  # crawl google
                 for url in webUrls:
                     if url in n_segment_urls:
                         n_segment_urls[url] += 1
@@ -249,18 +257,22 @@ def main():
                     else:
                         n_segment_urls[url] = 1
                 pool = mp.Pool()
-                alldata.extend(pool.map(crawlpage,webUrls))
+                thisTurnData = pool.map(crawlpage,webUrls)
+                alldata.extend(thisTurnData)
                 pool.close()
                 pool.join()
+                crawlPagetime = str(int(time.time()-tFirstStart))
                 
-                for data in alldata:
+                # write down those data from web page
+                for data in thisTurnData:
                     if len(data) > 0:
                         with open(join(outputpath,filename+'-'+str(alldata.index(data))+'.txt' ),'w',encoding='utf8') as f:
                             f.write(''.join(data))
-                #use pin yin to transfer data
-                
-                res = rq.get(bashfilepath+'?text={}&asr={}'.format
-                                                                    (Nasgoogle_crawl_dir,ASR_result))
+                # use pin yin to transfer data
+                tStart = time.time()
+                res = rq.get(bashfilepath+'?text={}&asr={}'.format(Nasgoogle_crawl_dir,ASR_result))
+                tranfPinYintime = str(int(time.time()-tStart))
+                tStart = time.time()
                 # use match method to find paragraph
                 matchfile_pre = 'fcr23.ws.re.wav.all2'
                 matchfile_tmp = 'fcr23.ws.re.wav.all2.res'
@@ -271,31 +283,32 @@ def main():
                 p2 = subprocess.Popen(['python3','filter_crawl_result.py',join(outputpath,matchfile_tmp),
                     join(outputpath,matchfile_result)],cwd="Match/wav_matched/",stdout=subprocess.PIPE,shell=True)
                 p2.wait()
-                #read match file and decide to query this file or not
+                matchFunctiontime = str(int(time.time()-tStart))
+                # read match file and decide to query this file or not
                 threshold = 0.9
                 with open(join(outputpath,'fcr23.ws.re.wav.all2.match'),'r',encoding='utf8') as f:
                     next(f)
                     data = f.readline().strip()
-                    
-                    print(len(data.split('\t')))
+                    assert len(data.split('\t')) == 17
                     score = data.split('\t')[16]
+                    logger.info('crawl '+str(len(thisTurnData))+' pages, spend '+
+                    'crawlPagetime:{}\ttranfPinYintime:{}\tmatchFunctiontime:{}'
+                    .format(crawlPagetime,tranfPinYintime,matchFunctiontime))
                     if float(score) > float(threshold):
                         print(data.split('\t')[10])    
-                        x = input('wait here')                    
-                        [shutil.copy(filename, join(outputpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]
-                        [os.remove(filename) for filename in glob.glob(join(outputpath,('*.txt')))]
+                        #write ASR result and web data
+                        with open('final','a',encoding='utf8') as f:
+                            f.write(''.join(keywordlist)+'\t'+data.split('\t')[10]+'\n')
+                        
                         break
                     else:
+                        thisTurnData = []
                         print('not found')
-                    
-                    
-                        
-                
+                    #x = input('wait here')    
+                    #[shutil.copy(filename, join(outputpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]
+                    #[os.remove(filename) for filename in glob.glob(join(outputpath,('*.txt')))]
                 tEnd = time.time()
-                
-                    
-                        
-                sleeptime = 15 -int(tEnd-tStart) 
+                sleeptime = 15 -int(tEnd-tFirstStart) 
                 if sleeptime > 0:
                     print('sleep',sleeptime)
                     time.sleep(sleeptime)
