@@ -29,7 +29,7 @@ class ASRdataFetcher(object):
     """Summary of class here.
     A class for get text from different source(such like text, databases, etc)
     """
-    def get(self, textpath, score=0.845):
+    def get(self, textpath, score):
         """get text and cm score from textpath
     
         Return contain chinese characters and score > threshold.
@@ -80,7 +80,9 @@ def short_word_less_32(fetcher,textpath,score):
     Reorganized the words from input list.
     
     Args:
-        inputlist: Remain those higher than cofidence score.
+        fetcher: data input source
+        textpath: data input path
+        score: asr result confidence score
     Returns:
         keywordlist: All words short than 32 characters.
     """
@@ -119,18 +121,19 @@ def short_word_less_32(fetcher,textpath,score):
     #    if item == '':
     #        keywordlist.remove(item)
     return keywordlist
-def reconstruct_search_words(textpath):
+def reconstruct_search_words(textpath,score=0.845):
     """Reconstruct search words
     
     Based on the search limit, we reorganized the words from input file.
     
     Args:
         textpath: It is the file path of input words.
+        score: asr result confidence score
     Returns:
         {Audio file name:keywordlist}
     """
     fetcher = ASRdataFetcher()
-    keywordlist = short_word_less_32(fetcher,textpath,0.845)
+    keywordlist = short_word_less_32(fetcher,textpath,score)
     return {textpath[-11:-3]:keywordlist}
 class test_myCompare(unittest.TestCase):
     """ 
@@ -222,10 +225,6 @@ def main():
     Nasgoogle_crawl_dir = config['Nasgoogle_crawl_dir']
     ASR_result = config['ASR_result']
     bashfilepath =config['bashfilepath']
-    # outputpath = join('\\\\140.96.186.23\計畫管理\FY107_E100計畫管理\科技大擂台\大擂台語料\題目試聽抓文字語料','all2')
-    # Nasgoogle_crawl_dir = '/home/openstack/mnt/nas/FY107_E100計畫管理/科技大擂台/大擂台語料/題目試聽抓文字語料/all2'
-    # ASR_result = '/mnt/nas/FY107_E100計畫管理/科技大擂台/大擂台語料/dry_run/kaggle1_cm/data/wav/A'
-    # bashfilepath = 'http://140.96.178.204:8000/cgi-bin/re2google.sh'
 
     # load from input text path
     input_text_path = [join(input_text_folder,os.path.basename(x)) for x in glob.glob(join(input_text_folder,('*'))) 
@@ -234,7 +233,7 @@ def main():
     
     filetoUrls = {}
     
-    for eachTarget in [reconstruct_search_words(eachpath) for eachpath in input_text_path]:
+    for eachTarget in [reconstruct_search_words(eachpath,0.845) for eachpath in input_text_path]:
         for filename, keywordlist in eachTarget.items():
             # get web urls from google each 15 seconds
             logger.info('Start: '+filename)
@@ -265,8 +264,9 @@ def main():
                 
                 # write down those data from web page
                 for data in thisTurnData:
-                    if len(data) > 0:
-                        with open(join(outputpath,filename+'-'+str(alldata.index(data))+'.txt' ),'w',encoding='utf8') as f:
+                    webcontent = ''.join(data)
+                    if len(webcontent) > 0 and len(webcontent) < 30000:
+                        with open(join(outputpath,filename+'-'+str(alldata.index(data))+'.txt'),'w',encoding='utf8') as f:
                             f.write(''.join(data))
                 # use pin yin to transfer data
                 tStart = time.time()
@@ -298,15 +298,16 @@ def main():
                         print(data.split('\t')[10])    
                         #write ASR result and web data
                         with open('final','a',encoding='utf8') as f:
-                            f.write(''.join(keywordlist)+'\t'+data.split('\t')[10]+'\n')
-                        
+                            thispath = [path for path in input_text_path if filename in path][0]
+                            f.write(''.join(reconstruct_search_words(thispath,0))+'\t'+data.split('\t')[10]+'\n')
+                        [shutil.copy(filename, join(outputpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]    
                         break
                     else:
                         thisTurnData = []
                         print('not found')
+                        [shutil.copy(filename, join(outputpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]
+                        
                     #x = input('wait here')    
-                    #[shutil.copy(filename, join(outputpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]
-                    #[os.remove(filename) for filename in glob.glob(join(outputpath,('*.txt')))]
                 tEnd = time.time()
                 sleeptime = 15 -int(tEnd-tFirstStart) 
                 if sleeptime > 0:
