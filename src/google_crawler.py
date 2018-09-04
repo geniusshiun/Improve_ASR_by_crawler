@@ -206,6 +206,30 @@ def crawlpage(url):
     except:
         alldata = ''
     return alldata
+def analyze(filename,outputpath,threshold,thisTurnData,input_text_path):
+    with open(join(outputpath,'fcr23.ws.re.wav.all2.match'),'r',encoding='utf8') as f:
+        next(f)
+        data = f.readline().strip()
+        assert len(data.split('\t')) == 17
+        score = data.split('\t')[16]
+        #print('crawl '+str(len(thisTurnData))+' pages, spend '+
+        #'crawlPagetime:{}\ttranfPinYintime:{}\tmatchFunctiontime:{}'
+        #.format(crawlPagetime,tranfPinYintime,matchFunctiontime))
+        if float(score) > float(threshold):
+            print(data.split('\t')[10])    
+            #write ASR result and web data
+            with open('final','a',encoding='utf8') as f:
+                thispath = [path for path in input_text_path if filename in path][0]
+                fetch = ASRdataFetcher()
+                f.write(''.join(fetch.get(thispath,0))+'\t'+data.split('\t')[10]+'\n')
+            [shutil.copy(fname, join(outputpath,'finish')) for fname in glob.glob(join(outputpath,('*.txt')))]    
+            shutil.copy(join(outputpath,'fcr23.ws.re.wav.all2.match'), join(join(outputpath,'finish'),filename+'match'))
+            return 'Get paragraph'
+        else:
+            
+            print('not found')
+            [shutil.copy(filename, join(outputpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]   
+            return 'Crawl Again'
 logger = logging.getLogger('google_crawler')
 logger.setLevel(logging.DEBUG)
 formatter=logging.Formatter('%(asctime)s - %(filename)s[line:%(lineno)d] - %(levelname)s: %(message)s')
@@ -232,7 +256,9 @@ def main():
     #print(input_text_path)
     
     filetoUrls = {}
-    
+    matchfile_pre = 'fcr23.ws.re.wav.all2'
+    matchfile_tmp = 'fcr23.ws.re.wav.all2.res'
+    matchfile_result = 'fcr23.ws.re.wav.all2.match'
     for eachTarget in [reconstruct_search_words(eachpath,0.845) for eachpath in input_text_path]:
         for filename, keywordlist in eachTarget.items():
             # get web urls from google each 15 seconds
@@ -240,7 +266,7 @@ def main():
             n_segment_urls = {}                 # is there a repetition in urls
             alldata = []
             print(filename,keywordlist)
-            #if not filename == 'A0000551':
+            #if not filename == 'A0000558':
             #    continue
             thisTurnData = []
             for keyword in keywordlist:
@@ -274,9 +300,7 @@ def main():
                 tranfPinYintime = str(int(time.time()-tStart))
                 tStart = time.time()
                 # use match method to find paragraph
-                matchfile_pre = 'fcr23.ws.re.wav.all2'
-                matchfile_tmp = 'fcr23.ws.re.wav.all2.res'
-                matchfile_result = 'fcr23.ws.re.wav.all2.match'
+                
                 p1 = subprocess.Popen(['python3','generate_diff.py',join(outputpath,matchfile_pre),
                     join(outputpath,matchfile_tmp)],cwd="Match/wav_matched/",stdout=subprocess.PIPE,shell=True)
                 p1.wait()
@@ -285,29 +309,11 @@ def main():
                 p2.wait()
                 matchFunctiontime = str(int(time.time()-tStart))
                 # read match file and decide to query this file or not
-                threshold = 0.9
-                with open(join(outputpath,'fcr23.ws.re.wav.all2.match'),'r',encoding='utf8') as f:
-                    next(f)
-                    data = f.readline().strip()
-                    assert len(data.split('\t')) == 17
-                    score = data.split('\t')[16]
-                    logger.info('crawl '+str(len(thisTurnData))+' pages, spend '+
-                    'crawlPagetime:{}\ttranfPinYintime:{}\tmatchFunctiontime:{}'
-                    .format(crawlPagetime,tranfPinYintime,matchFunctiontime))
-                    if float(score) > float(threshold):
-                        print(data.split('\t')[10])    
-                        #write ASR result and web data
-                        with open('final','a',encoding='utf8') as f:
-                            thispath = [path for path in input_text_path if filename in path][0]
-                            fetch = ASRdataFetcher()
-                            f.write(''.join(fetch.get(thispath,0))+'\t'+data.split('\t')[10]+'\n')
-                        [shutil.copy(filename, join(outputpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]    
-                        break
-                    else:
-                        thisTurnData = []
-                        print('not found')
-                        [shutil.copy(filename, join(outputpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]
-                        
+                if analyze(filename, outputpath, 0.9, thisTurnData, input_text_path) == 'Get paragraph':
+                    break
+                else:
+                    thisTurnData = []
+
                     #x = input('wait here')    
                 tEnd = time.time()
                 sleeptime = 15 -int(tEnd-tFirstStart) 
