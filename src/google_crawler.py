@@ -25,7 +25,7 @@ import jieba, jieba.analyse
 import shutil
 from pymongo import MongoClient
 import datetime
-from difflib import *
+from difflib import SequenceMatcher
 
 class ASRdataFetcher(object):
     """Summary of class here.
@@ -154,34 +154,53 @@ class test_short_word_less_32(unittest.TestCase):
         fetcher = ASRdataFetcher()
         textpath = join(join('..','input_ASR_results'),'A0000525.cm')
         self.assertEqual([text for text in short_word_less_32(fetcher,textpath,0.845) if len(text) > 32], [])
-def get_web_url(keyword):
-    """Get web url from google
-    
-    As title
-    
-    Args:
-        keyword: query search words
-    Returns:
-        weburls: web url list
-    """
-    
-    google_url = 'https://www.google.com.tw/search'
-    my_params = {'q':keyword, 'start':0}
-    r = rq.get(google_url,params=my_params)
-    if r.status_code == 200:
-        doc = html.fromstring(r.text)
-        #url_title = doc.xpath('//*[@id="rso"]/div[3]/div/div/div/div/h3/a')
-        soup = BeautifulSoup(r.text,'html.parser')
-        items = soup.select('div.g > h3.r > a[href^="/url"]')
-        #print([urlparse.parse_qs(urlparse.urlparse(i.get('href')).query)["q"][0] for i in items])
-        weburls = [urlparse.parse_qs(urlparse.urlparse(i.get('href')).query)["q"][0] for i in items]
-        weburls = [url for url in weburls if not '.pdf' in url and not '.PDF' in url and not '.doc' in url and not '.xls' in url]
-    else: 
-        print(r.status_code)
-        if r.status_code == '503':
-            print('googleban = True')
-            sys.exit()
-    return weburls
+class search(object):
+    def google_get_url(self,keyword):
+        """Get web url from google
+        
+        As title
+        
+        Args:
+            keyword: query search words
+        Returns:
+            weburls: web url list
+        """
+        
+        google_url = 'https://www.google.com.tw/search'
+        my_params = {'q':keyword, 'start':0}
+        r = rq.get(google_url,params=my_params)
+        if r.status_code == 200:
+            #doc = html.fromstring(r.text)
+            #url_title = doc.xpath('//*[@id="rso"]/div[3]/div/div/div/div/h3/a')
+            soup = BeautifulSoup(r.text,'html.parser')
+            items = soup.select('div.g > h3.r > a[href^="/url"]')
+            #print([urlparse.parse_qs(urlparse.urlparse(i.get('href')).query)["q"][0] for i in items])
+            weburls = [urlparse.parse_qs(urlparse.urlparse(i.get('href')).query)["q"][0] for i in items]
+            weburls = [url for url in weburls if not '.pdf' in url and not '.PDF' in url and not '.doc' in url and not '.xls' in url]
+        else: 
+            print(r.status_code)
+            if r.status_code == '503':
+                print('googleban = True')
+                sys.exit()
+        return weburls
+    def bing_get_url(self,keyword):
+        bing_url = 'https://www.bing.com/'
+        my_params = {'q':keyword, 'start':0}
+        r = rq.get(bing_url,params=my_params)
+        if r.status_code == 200:
+            #doc = html.fromstring(r.text)
+            #url_title = doc.xpath('//*[@id="rso"]/div[3]/div/div/div/div/h3/a')
+            soup = BeautifulSoup(r.text,'html.parser')
+            #for link in soup.find_all('a'):
+            #    print(link.get('href'))
+            items = [item['href'] for item in soup.select('li.b_algo > h2 > a')] #= [re.findall('href="(.+)">',item.text) for item in 
+            weburls = [url for url in items if not '.pdf' in url and not '.PDF' in url and not '.doc' in url and not '.xls' in url]
+        else: 
+            print(r.status_code)
+            if r.status_code == '503':
+                print('bingban = True')
+                sys.exit()
+        return weburls
 def crawlpage(url):
     """Get web data by url
     
@@ -199,7 +218,7 @@ def crawlpage(url):
         # add some limit to those continues receive data but too long
         searchweb = rq.get(url,headers= headers,timeout=3)
         if searchweb.encoding == 'ISO-8859-1':
-            encodings = re.findall('<meta.*content=.*charset=(?P<charset>[^;\s]+)',searchweb.text)
+            encodings = re.findall('<meta.*content=.*charset=(?P<charset>[^;\\s]+)',searchweb.text)
             if encodings:
                 searchweb.encoding = encodings[0]
         # we could use other way to parser the words, faster
@@ -275,7 +294,6 @@ def main():
     matchfile_pre = 'fcr23.ws.re.wav.all2'
     matchfile_tmp = 'fcr23.ws.re.wav.all2.res'
     matchfile_result = 'fcr23.ws.re.wav.all2.match'
-    filetoUrls = {}
 
     #load config
     with open('config','r',encoding='utf8') as f:
@@ -291,7 +309,7 @@ def main():
                     if '.cm' in x and '.cm2' not in x and '.syl' not in x]
     #print(input_text_path)
     input_text_path = sorted(input_text_path, key=functools.cmp_to_key(myCompare))
-    
+    search_enging = search()
     for eachTarget in [reconstruct_search_words(eachpath,0.845) for eachpath in input_text_path]:
         for filename, keywordlist in eachTarget.items():
             crawlflow = {}
@@ -311,7 +329,7 @@ def main():
                 [os.remove(filename) for filename in glob.glob(join(outputpath,('*.txt')))]
                 [os.remove(filename) for filename in glob.glob(join(outputpath,('*.line')))]
                 tFirstStart = time.time()
-                webUrls = get_web_url(keyword)  # crawl google
+                webUrls = search_enging.bing_get_url(keyword)  # crawl google
                 crawlflow['webUrls'] = webUrls
                 for url in webUrls:
                     if url in n_segment_urls:
@@ -338,7 +356,7 @@ def main():
                             f.write(''.join(data))
                 # use pin yin to transfer data
                 tStart = time.time()
-                res = rq.get(bashfilepath+'?text={}&asr={}'.format(Nasgoogle_crawl_dir,ASR_result))
+                rq.get(bashfilepath+'?text={}&asr={}'.format(Nasgoogle_crawl_dir,ASR_result))
                 tranfPinYintime = str(int(time.time()-tStart))
                 crawlflow['tranfPinYintime'] = tranfPinYintime
                 tStart = time.time()
