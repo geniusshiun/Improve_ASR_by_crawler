@@ -208,7 +208,7 @@ def crawlpage(url):
     except:
         alldata = ''
     return alldata
-def analyze(filename,outputpath,threshold,thisTurnData,input_text_path,crawlflow):
+def analyze(filename,outputpath,finishpath,threshold,thisTurnData,input_text_path,crawlflow):
     """Analyze match result; report whether re-crawl or not
     
     Open match file and consider the score of match result.
@@ -217,6 +217,7 @@ def analyze(filename,outputpath,threshold,thisTurnData,input_text_path,crawlflow
     Args:
         filename: asr file name
         outputpath: the location of match file
+        finishpath: finish file copy to this location
         threshold: besed on this threshold to decide re-crawl or not
         thisTurnData: the web contents lists from extended function crawlpage output
         input_text_path: loading folder
@@ -248,13 +249,13 @@ def analyze(filename,outputpath,threshold,thisTurnData,input_text_path,crawlflow
                 fetch = ASRdataFetcher()
                 crawlflow['oriASRresult'] =''.join(fetch.get(thispath,0))
                 f.write(crawlflow['oriASRresult']+'\t'+paragraph+'\n')
-            [shutil.copy(fname, join(outputpath,'finish')) for fname in glob.glob(join(outputpath,('*.txt')))]    
-            shutil.copy(join(outputpath,'fcr23.ws.re.wav.all2.match'), join(join(outputpath,'finish'),filename+'match'))
+            [shutil.copy(fname, join(finishpath,'finish')) for fname in glob.glob(join(outputpath,('*.txt')))]    
+            shutil.copy(join(outputpath,'fcr23.ws.re.wav.all2.match'), join(join(finishpath,'finish'),filename+'match'))
             return 'Get paragraph',crawlflow
         else:
             
             print('not found')
-            [shutil.copy(filename, join(outputpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]   
+            [shutil.copy(filename, join(finishpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]   
             return 'Crawl Again',crawlflow
 
 logger = logging.getLogger('google_crawler')
@@ -271,7 +272,11 @@ def main():
     conn = MongoClient('localhost',27017)
     db = conn.googlecrawlstream
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    
+    matchfile_pre = 'fcr23.ws.re.wav.all2'
+    matchfile_tmp = 'fcr23.ws.re.wav.all2.res'
+    matchfile_result = 'fcr23.ws.re.wav.all2.match'
+    filetoUrls = {}
+
     #load config
     with open('config','r',encoding='utf8') as f:
         config = json.loads(f.readlines()[0].strip())
@@ -280,15 +285,13 @@ def main():
     ASR_result = config['ASR_result']
     bashfilepath =config['bashfilepath']
     input_text_folder = config['input_text_folder']
+    finishpath = config['finishpath']
     # load from input text path
     input_text_path = [join(input_text_folder,os.path.basename(x)) for x in glob.glob(join(input_text_folder,('*'))) 
                     if '.cm' in x and '.cm2' not in x and '.syl' not in x]
     #print(input_text_path)
     input_text_path = sorted(input_text_path, key=functools.cmp_to_key(myCompare))
-    filetoUrls = {}
-    matchfile_pre = 'fcr23.ws.re.wav.all2'
-    matchfile_tmp = 'fcr23.ws.re.wav.all2.res'
-    matchfile_result = 'fcr23.ws.re.wav.all2.match'
+    
     for eachTarget in [reconstruct_search_words(eachpath,0.845) for eachpath in input_text_path]:
         for filename, keywordlist in eachTarget.items():
             crawlflow = {}
@@ -298,8 +301,8 @@ def main():
             n_segment_urls = {}                 # is there a repetition in urls
             alldata = []
             print(filename,keywordlist)
-            if not filename == 'A0000048':
-               continue
+            # if not filename == 'A0000048':
+            #    continue
             thisTurnData = []
             crawlflow['keywordlist'] = keywordlist
             for keyword in keywordlist:
@@ -324,7 +327,7 @@ def main():
                 pool.join()
                 crawlPagetime = str(int(time.time()-tFirstStart))
                 crawlflow['crawlPagetime'] = crawlPagetime
-                thisTurnData = [data for data in thisTurnData if len(''.join(data)) < 30000 and not data == '']
+                thisTurnData = [data for data in thisTurnData if len(''.join(data)) < 30000 and not data == '' and not data == []]
                 if not thisTurnData:
                     break
                 # write down those data from web page
@@ -350,7 +353,7 @@ def main():
                 matchFunctiontime = str(int(time.time()-tStart))
                 crawlflow['matchFunctiontime'] = matchFunctiontime
                 # Analyze - read match file and decide to query this file or not
-                if analyze(filename, outputpath, 0.9, thisTurnData, input_text_path,crawlflow)[0] == 'Get paragraph':
+                if analyze(filename, outputpath,finishpath, 0.9, thisTurnData, input_text_path,crawlflow)[0] == 'Get paragraph':
                     # from crawlflow['oriASRresult'] to compare with crawlflow['paragraph']
                     crawl_compare_match = SequenceMatcher(None, crawlflow['oriASRresult'], crawlflow['paragraph']).get_matching_blocks()
                     same_sents = [crawlflow['oriASRresult'][m[0]:m[0]+m[2]] for m in crawl_compare_match]
