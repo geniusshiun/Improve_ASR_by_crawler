@@ -26,6 +26,7 @@ import shutil
 from pymongo import MongoClient
 import datetime
 from difflib import SequenceMatcher
+from joblib import Parallel, delayed
 
 class ASRdataFetcher(object):
     """Summary of class here.
@@ -217,6 +218,7 @@ def crawlpage(url):
     try:
         # add some limit to those continues receive data but too long
         searchweb = rq.get(url,headers= headers,timeout=3)
+        
         if searchweb.encoding == 'ISO-8859-1':
             encodings = re.findall('<meta.*content=.*charset=(?P<charset>[^;\\s]+)',searchweb.text)
             if encodings:
@@ -224,7 +226,8 @@ def crawlpage(url):
         # we could use other way to parser the words, faster
         searchwebsoup = BeautifulSoup(searchweb.text,"lxml")
         alldata = re.findall('[A-Za-z0-9().% ]*[一-龥]+[A-Za-z0-9().% ]*',str(searchwebsoup.text))
-    except:
+    except Exception as e:
+        print(e)
         alldata = ''
     return alldata
 def analyze(filename,outputpath,finishpath,threshold,thisTurnData,input_text_path,crawlflow):
@@ -276,6 +279,36 @@ def analyze(filename,outputpath,finishpath,threshold,thisTurnData,input_text_pat
             print('not found')
             [shutil.copy(filename, join(finishpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]   
             return 'Crawl Again',crawlflow
+def diff_word_reconstruct(hint_dict,jiebacut_result,crawlflow):
+    newhintlist = []
+    last_position = 0
+    new_left = 0
+    firstTimeOverLeft = False
+    for position,word in hint_dict.items():
+        now_length = 0
+        for jieba_word in jiebacut_result:
+            now_length += len(jieba_word)
+            if now_length <= position[0]:
+                last_position = now_length
+                continue
+            elif now_length > position[0]:
+                if not firstTimeOverLeft:
+                    new_left = last_position
+                    firstTimeOverLeft = True
+            if now_length > position[1]:
+                if now_length - len(jieba_word) <= position[0]:
+                    new = crawlflow['paragraph'][now_length - len(jieba_word):now_length]
+                else:
+                    new = crawlflow['paragraph'][new_left:now_length]
+                newhintlist.append(new)
+                firstTimeOverLeft = False
+                break
+            elif now_length == position[1]:
+                newhintlist.append(crawlflow['paragraph'][new_left:position[1]])
+                firstTimeOverLeft = False
+                break
+    newhintlist = [hint for hint in newhintlist if len(hint) > 1]
+    return newhintlist
 
 logger = logging.getLogger('google_crawler')
 logger.setLevel(logging.DEBUG)
@@ -319,7 +352,7 @@ def main():
             n_segment_urls = {}                 # is there a repetition in urls
             alldata = []
             print(filename,keywordlist)
-            # if not filename == 'A0000048':
+            #if not filename == 'A0000560':
             #    continue
             thisTurnData = []
             crawlflow['keywordlist'] = keywordlist
@@ -337,12 +370,13 @@ def main():
                         webUrls.remove(url)
                     else:
                         n_segment_urls[url] = 1
-                pool = mp.Pool()
-                thisTurnData = pool.map(crawlpage,webUrls)
-                
+                #pool = mp.Pool()
+                #thisTurnData = pool.map(crawlpage,webUrls)
+                thisTurnData = Parallel(n_jobs=-1, backend="threading")(delayed(crawlpage)(url) for url in webUrls)
                 alldata.extend(thisTurnData)
-                pool.close()
-                pool.join()
+                #pool.close()
+                #pool.join()
+                
                 crawlPagetime = str(int(time.time()-tFirstStart))
                 crawlflow['crawlPagetime'] = crawlPagetime
                 thisTurnData = [data for data in thisTurnData if len(''.join(data)) < 30000 and not data == '' and not data == []]
@@ -377,8 +411,17 @@ def main():
                     same_sents = [crawlflow['oriASRresult'][m[0]:m[0]+m[2]] for m in crawl_compare_match]
                     same_sents = [sentence for sentence in same_sents if len(sentence) > 1]
                     opc1=SequenceMatcher(None, crawlflow['oriASRresult'], crawlflow['paragraph']).get_opcodes()    
+                    hint_dict = {}
+                    for tag, i1, i2, j1, j2 in  opc1:
+                        if tag == 'replace':
+                            hint_dict[(j1,j2)] = crawlflow['paragraph'][j1:j2]
+                    jiebacut_result = [w for w in jieba.cut(crawlflow['paragraph'].replace(' ',''))]
                     hints = [crawlflow['paragraph'][j1:j2] for tag, i1, i2, j1, j2 in  opc1 if tag == 'replace']
                     hints.extend(same_sents)
+                    crawlflow['orihints'] = hints
+                    hints = diff_word_reconstruct(hint_dict,jiebacut_result,crawlflow)
+                    crawlflow['reconstruct_hints'] = hints
+                    hints.extend([sent for sent in (crawlflow['paragraph'].replace(hint,' ') for hint in hints).split(' ') if len(sen) > 1])
                     crawlflow['hints'] = hints
                     db[timestamp].insert_one(crawlflow)
                     break
