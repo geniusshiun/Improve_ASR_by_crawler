@@ -28,6 +28,7 @@ import datetime
 from difflib import SequenceMatcher
 from joblib import Parallel, delayed
 
+
 class ASRdataFetcher(object):
     """Summary of class here.
     A class for get text from different source(such like text, databases, etc)
@@ -337,12 +338,17 @@ def main():
     bashfilepath =config['bashfilepath']
     input_text_folder = config['input_text_folder']
     finishpath = config['finishpath']
+
+    jieba.set_dictionary('dict.txt.big')
+    jieba.initialize()
+    
     # load from input text path
     input_text_path = [join(input_text_folder,os.path.basename(x)) for x in glob.glob(join(input_text_folder,('*'))) 
                     if '.cm' in x and '.cm2' not in x and '.syl' not in x]
     #print(input_text_path)
     input_text_path = sorted(input_text_path, key=functools.cmp_to_key(myCompare))
     search_enging = search()
+    searchEngine = 'Bing'
     for eachTarget in [reconstruct_search_words(eachpath,0.845) for eachpath in input_text_path]:
         for filename, keywordlist in eachTarget.items():
             crawlflow = {}
@@ -352,10 +358,11 @@ def main():
             n_segment_urls = {}                 # is there a repetition in urls
             alldata = []
             print(filename,keywordlist)
-            #if not filename == 'A0000560':
+            # if not filename == 'A0000008':
             #    continue
             thisTurnData = []
             crawlflow['keywordlist'] = keywordlist
+            
             for keyword in keywordlist:
                 crawlflow['keyword'] = keyword
                 [os.remove(filename) for filename in glob.glob(join(outputpath,('fcr23.ws.re.wav*')))]
@@ -363,7 +370,9 @@ def main():
                 [os.remove(filename) for filename in glob.glob(join(outputpath,('*.line')))]
                 tFirstStart = time.time()
                 webUrls = search_enging.bing_get_url(keyword)  # crawl google
+                crawlflow['searchEngine'] = searchEngine
                 crawlflow['webUrls'] = webUrls
+                crawlflow['round'] = keywordlist.index(keyword)
                 for url in webUrls:
                     if url in n_segment_urls:
                         n_segment_urls[url] += 1
@@ -374,18 +383,26 @@ def main():
                 #thisTurnData = pool.map(crawlpage,webUrls)
                 thisTurnData = Parallel(n_jobs=-1, backend="threading")(delayed(crawlpage)(url) for url in webUrls)
                 alldata.extend(thisTurnData)
+                
                 #pool.close()
                 #pool.join()
                 
                 crawlPagetime = str(int(time.time()-tFirstStart))
                 crawlflow['crawlPagetime'] = crawlPagetime
                 thisTurnData = [data for data in thisTurnData if len(''.join(data)) < 30000 and not data == '' and not data == []]
+                after_filter_page_num = len(thisTurnData)
+                crawlflow['afterFilterPageNum'] = after_filter_page_num
                 if not thisTurnData:
-                    break
+                    crawlflow['filename'] = filename+'-'+str(keywordlist.index(keyword))
+                    db[timestamp+'fail'].insert_one(crawlflow)
+                    crawlflow = {}
+                    crawlflow['filename'] = filename
+                    crawlflow['keywordlist'] = keywordlist
+                    continue
                 # write down those data from web page
                 for data in thisTurnData:
                     webcontent = ''.join(data)
-                    if len(webcontent) > 0 and len(webcontent) < 30000:
+                    if len(webcontent) > 0:
                         with open(join(outputpath,filename+'-'+str(alldata.index(data))+'.txt'),'w',encoding='utf8') as f:
                             f.write(''.join(data))
                 # use pin yin to transfer data
@@ -417,21 +434,28 @@ def main():
                             hint_dict[(j1,j2)] = crawlflow['paragraph'][j1:j2]
                     jiebacut_result = [w for w in jieba.cut(crawlflow['paragraph'].replace(' ',''))]
                     hints = [crawlflow['paragraph'][j1:j2] for tag, i1, i2, j1, j2 in  opc1 if tag == 'replace']
-                    hints.extend(same_sents)
+                    # hints.extend(same_sents)
                     crawlflow['orihints'] = hints
                     hints = diff_word_reconstruct(hint_dict,jiebacut_result,crawlflow)
-                    crawlflow['reconstruct_hints'] = hints
-                    hints.extend([sent for sent in (crawlflow['paragraph'].replace(hint,' ') for hint in hints).split(' ') if len(sen) > 1])
+                    reconstruct_hints = hints.copy()
+                    crawlflow['reconstruct_hints'] = reconstruct_hints
+                    hints.extend([sent for sent in (''.join([crawlflow['paragraph'].replace(hint,' ') for hint in hints])).split(' ') if len(sent) > 1])
                     crawlflow['hints'] = hints
+                    
                     db[timestamp].insert_one(crawlflow)
                     break
                 else:
                     thisTurnData = []
+                    crawlflow['filename'] = filename+'-'+str(keywordlist.index(keyword))
+                    db[timestamp+'fail'].insert_one(crawlflow)
+                    crawlflow = {}
+                    crawlflow['filename'] = filename
+                    crawlflow['keywordlist'] = keywordlist
 
                     #x = input('wait here')    
                 tEnd = time.time()
                 sleeptime = 15 -int(tEnd-tFirstStart) 
-                if sleeptime > 0:
+                if sleeptime > 0 and searchEngine == 'Google':
                     print('sleep',sleeptime)
                     time.sleep(sleeptime)
             
