@@ -27,7 +27,7 @@ from pymongo import MongoClient
 import datetime
 from difflib import SequenceMatcher
 from joblib import Parallel, delayed
-
+from firebase import firebase
 
 class ASRdataFetcher(object):
     """Summary of class here.
@@ -221,14 +221,17 @@ def crawlpage(url):
         searchweb = rq.get(url,headers= headers,timeout=3)
         
         if searchweb.encoding == 'ISO-8859-1':
-            encodings = re.findall('<meta.*content=.*charset=(?P<charset>[^;\\s]+)',searchweb.text)
+            encodings = re.findall('charset=\"?(\S.+)\"',searchweb.text)
             if encodings:
                 searchweb.encoding = encodings[0]
+            else:
+                searchweb.encoding = 'utf8'
         # we could use other way to parser the words, faster
         searchwebsoup = BeautifulSoup(searchweb.text,"lxml")
         alldata = re.findall('[A-Za-z0-9().% ]*[一-龥]+[A-Za-z0-9().% ]*',str(searchwebsoup.text))
     except Exception as e:
-        print(e)
+        #print(e)
+        logger.warning(str(e))
         alldata = ''
     return alldata
 def analyze(filename,outputpath,finishpath,threshold,thisTurnData,input_text_path,crawlflow):
@@ -322,6 +325,7 @@ logger.addHandler(fh)
 def main():
     # varibales
     input_text_folder = join('..','input_ASR_results')
+    
     conn = MongoClient('localhost',27017)
     db = conn.googlecrawlstream
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -338,6 +342,9 @@ def main():
     bashfilepath =config['bashfilepath']
     input_text_folder = config['input_text_folder']
     finishpath = config['finishpath']
+
+    # firebaseurl = config['firebaseurl']
+    # fb = firebase.FirebaseApplication(firebaseurl,None)
 
     jieba.set_dictionary('dict.txt.big')
     jieba.initialize()
@@ -394,10 +401,11 @@ def main():
                 crawlflow['afterFilterPageNum'] = after_filter_page_num
                 if not thisTurnData:
                     crawlflow['filename'] = filename+'-'+str(keywordlist.index(keyword))
-                    db[timestamp+'fail'].insert_one(crawlflow)
-                    crawlflow = {}
-                    crawlflow['filename'] = filename
-                    crawlflow['keywordlist'] = keywordlist
+                    db[timestamp+'fail'].insert_one(crawlflow.copy())
+                    #fb.post('/'+timestamp+'fail', crawlflow)
+                    # crawlflow = {}
+                    # crawlflow['filename'] = filename
+                    # crawlflow['keywordlist'] = keywordlist
                     continue
                 # write down those data from web page
                 for data in thisTurnData:
@@ -442,15 +450,17 @@ def main():
                     hints.extend([sent for sent in (''.join([crawlflow['paragraph'].replace(hint,' ') for hint in hints])).split(' ') if len(sent) > 1])
                     crawlflow['hints'] = hints
                     
-                    db[timestamp].insert_one(crawlflow)
+                    db[timestamp].insert_one(crawlflow.copy())
+                    #fb.post('/'+timestamp, crawlflow)
                     break
                 else:
                     thisTurnData = []
                     crawlflow['filename'] = filename+'-'+str(keywordlist.index(keyword))
-                    db[timestamp+'fail'].insert_one(crawlflow)
-                    crawlflow = {}
-                    crawlflow['filename'] = filename
-                    crawlflow['keywordlist'] = keywordlist
+                    db[timestamp+'fail'].insert_one(crawlflow.copy())
+                    #fb.post('/'+timestamp+'fail', crawlflow)
+                    # crawlflow.clear()
+                    # crawlflow['filename'] = filename
+                    # crawlflow['keywordlist'] = keywordlist
 
                     #x = input('wait here')    
                 tEnd = time.time()
