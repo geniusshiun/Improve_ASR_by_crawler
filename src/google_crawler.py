@@ -365,8 +365,8 @@ def main():
             n_segment_urls = {}                 # is there a repetition in urls
             alldata = []
             print(filename,keywordlist)
-            # if not filename == 'A0000008':
-            #    continue
+            #if not filename == 'A0001038':
+            #   continue
             thisTurnData = []
             crawlflow['keywordlist'] = keywordlist
             
@@ -447,9 +447,11 @@ def main():
                     hints = diff_word_reconstruct(hint_dict,jiebacut_result,crawlflow)
                     reconstruct_hints = hints.copy()
                     crawlflow['reconstruct_hints'] = reconstruct_hints
-                    hints.extend([sent for sent in (''.join([crawlflow['paragraph'].replace(hint,' ') for hint in hints])).split(' ') if len(sent) > 1])
+                    tmpparagraph = crawlflow['paragraph']
+                    for hint in hints:
+                        tmpparagraph = crawlflow['paragraph'].replace(hint,' ')
+                    hints.extend([sent for sent in ''.join(tmpparagraph).split(' ') if len(sent) > 1])
                     crawlflow['hints'] = hints
-                    
                     db[timestamp].insert_one(crawlflow.copy())
                     #fb.post('/'+timestamp, crawlflow)
                     break
