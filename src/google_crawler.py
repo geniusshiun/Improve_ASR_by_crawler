@@ -170,7 +170,7 @@ class search(object):
         
         google_url = 'https://www.google.com.tw/search'
         my_params = {'q':keyword, 'start':0}
-        r = rq.get(google_url,params=my_params)
+        r = rq.get(google_url,params=my_params,verify = False)
         if r.status_code == 200:
             #doc = html.fromstring(r.text)
             #url_title = doc.xpath('//*[@id="rso"]/div[3]/div/div/div/div/h3/a')
@@ -355,12 +355,12 @@ def main():
     #print(input_text_path)
     input_text_path = sorted(input_text_path, key=functools.cmp_to_key(myCompare))
     search_enging = search()
-    searchEngine = 'Bing'
+    searchEngine = 'Google'
     for eachTarget in [reconstruct_search_words(eachpath,0.845) for eachpath in input_text_path]:
         for filename, keywordlist in eachTarget.items():
             crawlflow = {}
             # get web urls from google each 15 seconds
-            crawlflow['filename'] = filename
+            
             logger.info('Start: '+filename)
             n_segment_urls = {}                 # is there a repetition in urls
             alldata = []
@@ -371,12 +371,13 @@ def main():
             crawlflow['keywordlist'] = keywordlist
             
             for keyword in keywordlist:
+                crawlflow['filename'] = filename
                 crawlflow['keyword'] = keyword
                 [os.remove(filename) for filename in glob.glob(join(outputpath,('fcr23.ws.re.wav*')))]
                 [os.remove(filename) for filename in glob.glob(join(outputpath,('*.txt')))]
                 [os.remove(filename) for filename in glob.glob(join(outputpath,('*.line')))]
                 tFirstStart = time.time()
-                webUrls = search_enging.bing_get_url(keyword)  # crawl google
+                webUrls = search_enging.google_get_url(keyword)  # crawl google
                 crawlflow['searchEngine'] = searchEngine
                 crawlflow['webUrls'] = webUrls
                 crawlflow['round'] = keywordlist.index(keyword)
@@ -435,22 +436,32 @@ def main():
                     crawl_compare_match = SequenceMatcher(None, crawlflow['oriASRresult'], crawlflow['paragraph']).get_matching_blocks()
                     same_sents = [crawlflow['oriASRresult'][m[0]:m[0]+m[2]] for m in crawl_compare_match]
                     same_sents = [sentence for sentence in same_sents if len(sentence) > 1]
+                    crawlflow['oriASRresult'] = crawlflow['oriASRresult'].replace(' ','')
+                    crawlflow['paragraph'] = crawlflow['paragraph'].replace(' ','')
                     opc1=SequenceMatcher(None, crawlflow['oriASRresult'], crawlflow['paragraph']).get_opcodes()    
                     hint_dict = {}
                     for tag, i1, i2, j1, j2 in  opc1:
                         if tag == 'replace':
                             hint_dict[(j1,j2)] = crawlflow['paragraph'][j1:j2]
-                    jiebacut_result = [w for w in jieba.cut(crawlflow['paragraph'].replace(' ',''))]
-                    hints = [crawlflow['paragraph'][j1:j2] for tag, i1, i2, j1, j2 in  opc1 if tag == 'replace']
+                    jiebacut_result = [w for w in jieba.cut(crawlflow['paragraph'])]
+                    orihints = [crawlflow['paragraph'][j1:j2] for tag, i1, i2, j1, j2 in  opc1 if tag == 'replace']
                     # hints.extend(same_sents)
-                    crawlflow['orihints'] = hints
-                    hints = diff_word_reconstruct(hint_dict,jiebacut_result,crawlflow)
-                    reconstruct_hints = hints.copy()
+                    crawlflow['orihints'] = orihints
+                    reconstruct_hints = diff_word_reconstruct(hint_dict,jiebacut_result,crawlflow)
+                    hints = reconstruct_hints.copy()
                     crawlflow['reconstruct_hints'] = reconstruct_hints
                     tmpparagraph = crawlflow['paragraph']
                     for hint in hints:
-                        tmpparagraph = crawlflow['paragraph'].replace(hint,' ')
+                        tmpparagraph = tmpparagraph.replace(hint,' ')
                     hints.extend([sent for sent in ''.join(tmpparagraph).split(' ') if len(sent) > 1])
+                    hintlength = 0
+                    for hint in hints:
+                        hintlength+=len(hint)
+                        if hintlength >= 5000:
+                            hints.remove(hint)
+                            break
+                        if len(hint) > 100:
+                            hints.remove(hint)
                     crawlflow['hints'] = hints
                     db[timestamp].insert_one(crawlflow.copy())
                     #fb.post('/'+timestamp, crawlflow)
@@ -475,6 +486,11 @@ def main():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser("Script for web crawler")
+    parser.add_argument("--thread_count", type=int, default=50)
+    parser.add_argument("--drama_file", type=str, required=True)
+    parser.add_argument('file_in', type=str,help='string with absolute path or relative path to the input')
+    args = parser.parse_args()
     main()
     #unittest.main()
     
