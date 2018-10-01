@@ -27,7 +27,8 @@ from pymongo import MongoClient
 import datetime
 from difflib import SequenceMatcher
 from joblib import Parallel, delayed
-from firebase import firebase
+#from firebase import firebase
+import argparse
 
 class ASRdataFetcher(object):
     """Summary of class here.
@@ -170,7 +171,7 @@ class search(object):
         
         google_url = 'https://www.google.com.tw/search'
         my_params = {'q':keyword, 'start':0}
-        r = rq.get(google_url,params=my_params,verify = False)
+        r = rq.get(google_url,params=my_params)
         if r.status_code == 200:
             #doc = html.fromstring(r.text)
             #url_title = doc.xpath('//*[@id="rso"]/div[3]/div/div/div/div/h3/a')
@@ -283,7 +284,18 @@ def analyze(filename,outputpath,finishpath,threshold,thisTurnData,input_text_pat
             print('not found')
             [shutil.copy(filename, join(finishpath,'finish')) for filename in glob.glob(join(outputpath,('*.txt')))]   
             return 'Crawl Again',crawlflow
-def diff_word_reconstruct(hint_dict,jiebacut_result,crawlflow):
+def diff_word_reconstruct(hint_dict,jiebacut_result,paragraph):
+    """Find out the different between the first ASR result and the paragraph in web data.
+    
+    Compare with the result after jieba cut and the replace part in 'diff library result'    
+    Args:
+        hint_dict: The struct of hints after runing function SequenceMatcher
+        jiebacut_result: The data after jieba cut
+        paragraph: The reference paragraph in web data
+        
+    Returns:
+        newhintlist: Change the hint to a significant word
+    """
     newhintlist = []
     last_position = 0
     new_left = 0
@@ -301,14 +313,14 @@ def diff_word_reconstruct(hint_dict,jiebacut_result,crawlflow):
                     firstTimeOverLeft = True
             if now_length > position[1]:
                 if now_length - len(jieba_word) <= position[0]:
-                    new = crawlflow['paragraph'][now_length - len(jieba_word):now_length]
+                    new = paragraph[now_length - len(jieba_word):now_length]
                 else:
-                    new = crawlflow['paragraph'][new_left:now_length]
+                    new = paragraph[new_left:now_length]
                 newhintlist.append(new)
                 firstTimeOverLeft = False
                 break
             elif now_length == position[1]:
-                newhintlist.append(crawlflow['paragraph'][new_left:position[1]])
+                newhintlist.append(paragraph[new_left:position[1]])
                 firstTimeOverLeft = False
                 break
     newhintlist = [hint for hint in newhintlist if len(hint) > 1]
@@ -322,30 +334,43 @@ fh.setLevel(logging.INFO)
 fh.setFormatter(formatter)
 logger.addHandler(fh)
 
-def main():
+def main(args):
     # varibales
     input_text_folder = join('..','input_ASR_results')
     
     conn = MongoClient('localhost',27017)
     db = conn.googlecrawlstream
     timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print('time stamp:',timestamp)
     matchfile_pre = 'fcr23.ws.re.wav.all2'
     matchfile_tmp = 'fcr23.ws.re.wav.all2.res'
     matchfile_result = 'fcr23.ws.re.wav.all2.match'
 
     #load config
-    with open('config','r',encoding='utf8') as f:
-        config = json.loads(f.readlines()[0].strip())
-    outputpath = config['outputpath']
-    Nasgoogle_crawl_dir = config['Nasgoogle_crawl_dir']
-    ASR_result = config['ASR_result']
-    bashfilepath =config['bashfilepath']
-    input_text_folder = config['input_text_folder']
-    finishpath = config['finishpath']
+    if args.load_config:
+        with open('config','r',encoding='utf8') as f:
+            config = json.loads(f.readlines()[0].strip())
+        outputpath = config['outputpath']
+        Nasgoogle_crawl_dir = config['Nasgoogle_crawl_dir']
+        ASR_result = config['ASR_result']
+        bashfilepath =config['bashfilepath']
+        input_text_folder = config['input_text_folder']
+        finishpath = config['finishpath']
+    else:
+        outputpath = args.output_path
+        Nasgoogle_crawl_dir = args.google_crawl_dir
+        ASR_result = args.pinyin_access_ASR_result_path
+        bashfilepath =args.bashfilepath
+        input_text_folder = args.python_access_input_folder
+        finishpath = args.web_data_path
+    
 
+    #os.makedirs(outputpath, exist_ok=True)
+    #os.makedirs(finishpath, exist_ok=True)
+    searchEngine = args.search_engine
     # firebaseurl = config['firebaseurl']
     # fb = firebase.FirebaseApplication(firebaseurl,None)
-
+    
     jieba.set_dictionary('dict.txt.big')
     jieba.initialize()
     
@@ -355,7 +380,7 @@ def main():
     #print(input_text_path)
     input_text_path = sorted(input_text_path, key=functools.cmp_to_key(myCompare))
     search_enging = search()
-    searchEngine = 'Google'
+    #searchEngine = 'Google'
     for eachTarget in [reconstruct_search_words(eachpath,0.845) for eachpath in input_text_path]:
         for filename, keywordlist in eachTarget.items():
             crawlflow = {}
@@ -364,9 +389,11 @@ def main():
             logger.info('Start: '+filename)
             n_segment_urls = {}                 # is there a repetition in urls
             alldata = []
+            
+            if not args.special_file_name == '':
+                if not filename == args.special_file_name:
+                    continue
             print(filename,keywordlist)
-            #if not filename == 'A0001038':
-            #   continue
             thisTurnData = []
             crawlflow['keywordlist'] = keywordlist
             
@@ -377,7 +404,10 @@ def main():
                 [os.remove(filename) for filename in glob.glob(join(outputpath,('*.txt')))]
                 [os.remove(filename) for filename in glob.glob(join(outputpath,('*.line')))]
                 tFirstStart = time.time()
-                webUrls = search_enging.google_get_url(keyword)  # crawl google
+                if searchEngine == 'Google':
+                    webUrls = search_enging.google_get_url(keyword)  # crawl google
+                elif searchEngine == 'Bing':
+                    webUrls = search_enging.bing_get_url(keyword)  # crawl google
                 crawlflow['searchEngine'] = searchEngine
                 crawlflow['webUrls'] = webUrls
                 crawlflow['round'] = keywordlist.index(keyword)
@@ -423,10 +453,10 @@ def main():
                 # use match method to find paragraph
                 
                 p1 = subprocess.Popen(['python3','generate_diff.py',join(outputpath,matchfile_pre),
-                    join(outputpath,matchfile_tmp)],cwd="Match/wav_matched/",stdout=subprocess.PIPE,shell=True)
+                    join(outputpath,matchfile_tmp)],cwd="Match/wav_matched/",stdout=subprocess.PIPE,shell=False)
                 p1.wait()
                 p2 = subprocess.Popen(['python3','filter_crawl_result.py',join(outputpath,matchfile_tmp),
-                    join(outputpath,matchfile_result)],cwd="Match/wav_matched/",stdout=subprocess.PIPE,shell=True)
+                    join(outputpath,matchfile_result)],cwd="Match/wav_matched/",stdout=subprocess.PIPE,shell=False)
                 p2.wait()
                 matchFunctiontime = str(int(time.time()-tStart))
                 crawlflow['matchFunctiontime'] = matchFunctiontime
@@ -447,7 +477,7 @@ def main():
                     orihints = [crawlflow['paragraph'][j1:j2] for tag, i1, i2, j1, j2 in  opc1 if tag == 'replace']
                     # hints.extend(same_sents)
                     crawlflow['orihints'] = orihints
-                    reconstruct_hints = diff_word_reconstruct(hint_dict,jiebacut_result,crawlflow)
+                    reconstruct_hints = diff_word_reconstruct(hint_dict,jiebacut_result,crawlflow['paragraph'])
                     hints = reconstruct_hints.copy()
                     crawlflow['reconstruct_hints'] = reconstruct_hints
                     tmpparagraph = crawlflow['paragraph']
@@ -455,14 +485,16 @@ def main():
                         tmpparagraph = tmpparagraph.replace(hint,' ')
                     hints.extend([sent for sent in ''.join(tmpparagraph).split(' ') if len(sent) > 1])
                     hintlength = 0
+                    tmphint = []
                     for hint in hints:
                         hintlength+=len(hint)
                         if hintlength >= 5000:
-                            hints.remove(hint)
                             break
-                        if len(hint) > 100:
-                            hints.remove(hint)
-                    crawlflow['hints'] = hints
+                        else:
+                            if len(hint) < 100:
+                                tmphint.append(hint)
+                        
+                    crawlflow['hints'] = tmphint
                     db[timestamp].insert_one(crawlflow.copy())
                     #fb.post('/'+timestamp, crawlflow)
                     break
@@ -487,10 +519,17 @@ def main():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Script for web crawler")
-    parser.add_argument("--thread_count", type=int, default=50)
-    parser.add_argument("--drama_file", type=str, required=True)
-    parser.add_argument('file_in', type=str,help='string with absolute path or relative path to the input')
+    parser.add_argument("--load_config", type=bool, required=True,help='define config source, True for load config file; False by command define')
+    parser.add_argument("--output_path", type=str, default='',help='temporarily save the crawled web data')
+    parser.add_argument("--google_crawl_dir", type=str,help='crawling data path which pinyin system could access')
+    parser.add_argument('--pinyin_access_ASR_result_path', type=str,help='The pinyin service could access this path which first ASR results are in')
+    parser.add_argument('--python_access_input_folder', type=str,help='This python could access the folder which first ASR results are in')
+    parser.add_argument('--bashfilepath', default = "http://140.96.178.204:8000/cgi-bin/re2google.sh",type=str,help='pinyin service path')
+    parser.add_argument('--web_data_path', type=str,help='web data and match file store in this path')
+    parser.add_argument('--search_engine', type=str, required=True, default = 'Google', help = 'choise Google or Bing for search engine, default = Google')
+    parser.add_argument('--special_file_name', default = '',type=str , help = 'only crawl the web data reference to this file name')
     args = parser.parse_args()
-    main()
+    
+    main(args)
     #unittest.main()
     
