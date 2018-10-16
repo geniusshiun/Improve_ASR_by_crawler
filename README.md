@@ -25,3 +25,8 @@ Load ASR result files; generate hints for each ASR result; get more correct ASR 
 * six==1.11.0
 * urllib3==1.23
 
+# Report
+
+database structure
+
+![Pipeline](/images/Database_Structure.png)
