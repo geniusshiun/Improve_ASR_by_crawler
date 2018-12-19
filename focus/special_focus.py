@@ -13,6 +13,9 @@ import jieba.posseg as pseg
 import Levenshtein as lev
 import multiprocessing as mp
 import functools
+import os
+import sys
+import shutil
 
 
 def myCompare(a,b):
@@ -38,7 +41,7 @@ def myCompare(a,b):
     except:
         pass
         return 0
-def createNewA(filepath,article,articleID,beautiful,stone,monkey,oldman,lu_1):
+def createNewA(filepath,article,articleID,beautiful,stone,monkey,oldman,lu_1,outputfolder):
     """Write the new file A based on Levenshtein ratio
     
     Computer the highest Levenshtein ratio between different reference data.
@@ -64,6 +67,7 @@ def createNewA(filepath,article,articleID,beautiful,stone,monkey,oldman,lu_1):
     inputlist = []
     #if number > 10000:
     #    return False
+    
     with open(filepath,'r',encoding = 'utf8') as f:
         for line in f.readlines():
             
@@ -76,8 +80,10 @@ def createNewA(filepath,article,articleID,beautiful,stone,monkey,oldman,lu_1):
             except: #Exception as e:
                 pass
     data = ''.join(inputlist)
+    goalfolder = outputfolder
     if len(data) < 20:
         print('ASR bad')
+        shutil.copy( filepath, join(goalfolder,filename+'.cm'))
         return number,'0','ASR length < 20'
     maxratio = 0
     referenceCandidata = ''
@@ -114,11 +120,15 @@ def createNewA(filepath,article,articleID,beautiful,stone,monkey,oldman,lu_1):
                 referenceIndex = 6
         
         #writ new A
-        with open(join('kaggle7',filename+'.cm'),'w',encoding = 'utf8') as f:
+        
+        if not os.path.exists(goalfolder):
+            os.makedirs(goalfolder)
+        with open(join(goalfolder,filename+'.cm'),'w',encoding = 'utf8') as f:
             for line in oridata:
                 f.write(line)
             f.write('1\t'+referenceCandidata+'\t0.99')
         return filename,maxratio,inwhichReference[referenceIndex]
+    shutil.copy( filepath, join(goalfolder,filename+'.cm'))
     return filename,maxratio,inwhichReference[referenceIndex]
 def loadreference(filepath):
     data = []
@@ -128,19 +138,8 @@ def loadreference(filepath):
             if len(line) > 20:
                 data.append(line)
     return data
-def main():
-    
-    articleID = {}
-    article = []
-    beautiful = []
+def loadstone():
     stone = []
-    monkey = []
-    oldman = []
-    lu_1 = []#吶喊
-    beautiful = loadreference('美人恩.txt')
-    monkey = loadreference('西遊記.txt')
-    oldman = loadreference('老殘遊記.txt')
-    lu_1 = loadreference('吶喊.txt')
     with open('石頭記.txt','r',encoding='utf8') as f:
         for line in f.readlines():
             line = line.strip().replace(' ','')
@@ -162,6 +161,21 @@ def main():
                     print(oriline)
                     print(startlist)
                     print(endlist)
+    return stone
+def main():
+    
+    articleID = {}
+    article = []
+    beautiful = []
+    stone = []
+    monkey = []
+    oldman = []
+    lu_1 = []#吶喊
+    beautiful = loadreference('美人恩.txt')
+    monkey = loadreference('西遊記.txt')
+    oldman = loadreference('老殘遊記.txt')
+    lu_1 = loadreference('吶喊.txt')
+    stone = loadstone()
             #print(re.finditer('([【])',line))
     
     with open('allreferenceText','r',encoding='utf8') as f:
@@ -174,21 +188,31 @@ def main():
                 article.append(data)
             except:
                 print(line)
+    try:
+        inputfolder = sys.argv[1]
+        outputfolder = sys.argv[2]
+        if not os.path.exists(outputfolder):
+            os.makedirs(outputfolder)
+        #print(inputfolder,outputfolder)
+    except:
+        print('argument error')
+        sys.exit('error')
     
-    input_text_path = sorted(glob.glob(join('A','*.cm')), key=functools.cmp_to_key(myCompare))
+    input_text_path = sorted(glob.glob(join(inputfolder,'*.cm')), key=functools.cmp_to_key(myCompare))
+    
     pool = mp.Pool()
     reslist = []
     for filepath in input_text_path:
-        args = [filepath,article,articleID,beautiful,stone,monkey,oldman,lu_1]
+        args = [filepath,article,articleID,beautiful,stone,monkey,oldman,lu_1,outputfolder]
         res = pool.apply_async(func=createNewA, args=args)
         reslist.append(res)
     pool.close()
     pool.join()
-    f = open('result.log','w',encoding='utf8')
+    f = open('resultKaggle2.log','w',encoding='utf8')
     for res in reslist:
         #filename,maxratio,inwhichReference[referenceIndex]
         result = res.get()
-        print(result)
+        #print(result)
         filename = str(result[0])
         maxratio = str(result[1])[:5]
         comment = result[2]
