@@ -1,4 +1,8 @@
 import re
+import glob
+import sys
+import os
+from os.path import join
 def strQ2B(ustring):
     """把字串全形轉半形"""
     rstring = []
@@ -78,19 +82,23 @@ def policereader(filepath):
     
 
 def main():
-    for filename in ['吶喊.txt','石頭記.txt','美人恩.txt','老殘遊記.txt','西遊記.txt','allreferenceText','三國演義.txt']:
-        
-        if '石頭記' in filename:
-            data = stonereader(filename)
-        elif 'allrefer' in filename: 
-            data = policereader(filename)
+    outputfolder = sys.argv[1]
+    if not os.path.exists(outputfolder):
+        os.makedirs(outputfolder)
+    for filepath in glob.glob('*.txt'):
+        if 'removeMapping.txt' in filepath:
+            continue
+        if 'stone' == filepath:
+            data = stonereader(filepath)
         else:
-            data = loadreference(filename)
+            data = loadreference(filepath)
+
+    #for filename in ['吶喊.txt','石頭記.txt','美人恩.txt','老殘遊記.txt','西遊記.txt','allreferenceText','三國演義.txt']:
         newdata = data.copy()
         data = []
         for line in newdata:
             data.append(strQ2B(line))
-        with open(filename.replace('.txt','')+'line.txt','w',encoding='utf8') as f:
+        with open(join(outputfolder,filepath.replace('.txt','')+'line.txt'),'w',encoding='utf8') as f:
             for line in data:
                 f.write(line+'\n')
 if __name__=='__main__':

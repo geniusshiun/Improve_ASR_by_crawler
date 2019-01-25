@@ -8,14 +8,15 @@ import glob
 import requests
 from os.path import join
 import re
-import jieba, jieba.analyse
-import jieba.posseg as pseg
+#import jieba, jieba.analyse
+#import jieba.posseg as pseg
 import Levenshtein as lev
 import multiprocessing as mp
 import functools
 import os
 import sys
 import shutil
+import time
 
 
 def myCompare(a,b):
@@ -41,7 +42,7 @@ def myCompare(a,b):
     except:
         pass
         return 0
-def createNewA(filepath,article,articleID,beautiful,stone,monkey,oldman,lu_1,outputfolder):
+def createNewA(filepath,article,articleID,alldata,outputfolder):
     """Write the new file A based on Levenshtein ratio
     
     Computer the highest Levenshtein ratio between different reference data.
@@ -60,14 +61,15 @@ def createNewA(filepath,article,articleID,beautiful,stone,monkey,oldman,lu_1,out
         pass
     """
     #load .cm files   
-    inwhichReference = {0:'null',1:'警廣',2:'美人恩',3:'石頭記',4:'西遊記',5:'老殘遊記',6:'魯迅吶喊'}
+    # inwhichReference = {0:'null',1:'警廣',2:'美人恩',3:'石頭記',4:'西遊記',5:'老殘遊記',6:'魯迅吶喊'}
     number = int(re.findall('A(\d+)',filepath)[0])
     filename = re.findall('(A\d+)',filepath)[0]
     oridata = []
     inputlist = []
     #if number > 10000:
     #    return False
-    
+    # if number < 10000:
+    #     return number,'0','number < 10000'
     with open(filepath,'r',encoding = 'utf8') as f:
         for line in f.readlines():
             
@@ -87,49 +89,45 @@ def createNewA(filepath,article,articleID,beautiful,stone,monkey,oldman,lu_1,out
         return number,'0','ASR length < 20'
     maxratio = 0
     referenceCandidata = ''
-    if number > 10000:
-        computerArticle = article
-    else:
-        computerArticle = []
-        computerArticle.extend(beautiful)
-        computerArticle.extend(stone)
-        computerArticle.extend(monkey)
-        computerArticle.extend(oldman)
-        computerArticle.extend(lu_1)
+    # if number > 10000:
+    #     computerArticle = article
+    # else:
+    
+    computerArticle = []
+    computerArticle.extend(article)
+    for novel,noveldata in alldata.items():
+        computerArticle.extend(noveldata)
+    
     for reference in computerArticle:
         ratio = lev.ratio(data,reference)
         if ratio > maxratio:
             maxratio = ratio
             referenceCandidata = reference
-    referenceIndex = 0
+    referenceIndex = 'null'
     if maxratio > 0.3:
-        if number > 10000:
-            print(number,maxratio,referenceCandidata[:10],articleID[referenceCandidata])
-            referenceIndex = 1
+        # if number > 10000:
+        #     print(number,maxratio,referenceCandidata[:10],articleID[referenceCandidata])
+        #     referenceIndex = 1
+        # else:
+        print(number,maxratio,referenceCandidata[:10])
+        if referenceCandidata in article: 
+            referenceIndex = '警廣'
         else:
-            print(number,maxratio,referenceCandidata[:10])
-            if referenceCandidata in beautiful: 
-                referenceIndex = 2
-            elif referenceCandidata in stone: 
-                referenceIndex = 3
-            elif referenceCandidata in monkey: 
-                referenceIndex = 4
-            elif referenceCandidata in oldman: 
-                referenceIndex = 5
-            elif referenceCandidata in lu_1: 
-                referenceIndex = 6
+            for novel,noveldata in alldata.items():
+                if referenceCandidata in noveldata:
+                    referenceIndex = novel
+                    break
         
         #writ new A
-        
         if not os.path.exists(goalfolder):
             os.makedirs(goalfolder)
         with open(join(goalfolder,filename+'.cm'),'w',encoding = 'utf8') as f:
             for line in oridata:
                 f.write(line)
             f.write('1\t'+referenceCandidata+'\t0.99')
-        return filename,maxratio,inwhichReference[referenceIndex]
+        return filename,maxratio,referenceIndex
     shutil.copy( filepath, join(goalfolder,filename+'.cm'))
-    return filename,maxratio,inwhichReference[referenceIndex]
+    return filename,maxratio,referenceIndex
 def loadreference(filepath):
     data = []
     with open(filepath,'r',encoding='utf8') as f:
@@ -140,7 +138,7 @@ def loadreference(filepath):
     return data
 def loadstone():
     stone = []
-    with open('石頭記.txt','r',encoding='utf8') as f:
+    with open('stone.txt','r',encoding='utf8') as f:
         for line in f.readlines():
             line = line.strip().replace(' ','')
             
@@ -162,35 +160,63 @@ def loadstone():
                     print(startlist)
                     print(endlist)
     return stone
+def loadallarticle():
+    alldata = {}
+    for filepath in glob.glob('*.txt'):
+        if 'removeMapping.txt' in filepath:
+            continue
+        if 'police' in filepath:
+            continue
+        if 'stone' in filepath:
+            alldata['stone'] = loadstone()
+        else:
+            alldata[filepath[:-4]] = loadreference(filepath)
+    return alldata
 def main():
-    
+    sTime = time.time()
     articleID = {}
+    alldata = loadallarticle()
+    
     article = []
-    beautiful = []
-    stone = []
-    monkey = []
-    oldman = []
-    lu_1 = []#吶喊
-    beautiful = loadreference('美人恩.txt')
-    monkey = loadreference('西遊記.txt')
-    oldman = loadreference('老殘遊記.txt')
-    lu_1 = loadreference('吶喊.txt')
-    stone = loadstone()
+    # beautiful = []
+    # stone = []
+    # monkey = []
+    # oldman = []
+    # lu_1 = []#吶喊
+    # beautiful = loadreference('美人恩.txt')
+    # monkey = loadreference('西遊記.txt')
+    # oldman = loadreference('老殘遊記.txt')
+    # lu_1 = loadreference('吶喊.txt')
+    # stone = loadstone()
             #print(re.finditer('([【])',line))
     
-    with open('allreferenceText','r',encoding='utf8') as f:
+    # with open('allreferenceText','r',encoding='utf8') as f:
+    #     for line in f.readlines():
+    #         line = line.strip()
+    #         try:
+    #             data = line.split('\t')[2]
+    #             article_id = re.findall('article_id=(\d+)',line.split('\t')[0])[0]
+    #             articleID[data] = article_id
+    #             article.append(data)
+    #         except:
+    #             print(line)
+    with open('police1060101_1071220','r',encoding='utf8') as f:
         for line in f.readlines():
             line = line.strip()
             try:
-                data = line.split('\t')[2]
-                article_id = re.findall('article_id=(\d+)',line.split('\t')[0])[0]
+                data = line.split('\t')[3]
+                article_id = line.split('\t')[0]
                 articleID[data] = article_id
                 article.append(data)
-            except:
+            except Exception as e:
                 print(line)
+                print(e)
+                sys.exit()
+    
     try:
         inputfolder = sys.argv[1]
         outputfolder = sys.argv[2]
+        logname = sys.argv[3]
         if not os.path.exists(outputfolder):
             os.makedirs(outputfolder)
         #print(inputfolder,outputfolder)
@@ -203,21 +229,21 @@ def main():
     pool = mp.Pool()
     reslist = []
     for filepath in input_text_path:
-        args = [filepath,article,articleID,beautiful,stone,monkey,oldman,lu_1,outputfolder]
+        args = [filepath,article,articleID,alldata,outputfolder]
         res = pool.apply_async(func=createNewA, args=args)
         reslist.append(res)
     pool.close()
     pool.join()
-    f = open('resultKaggle2.log','w',encoding='utf8')
+    f = open(logname,'w',encoding='utf8')
     for res in reslist:
         #filename,maxratio,inwhichReference[referenceIndex]
         result = res.get()
         #print(result)
         filename = str(result[0])
         maxratio = str(result[1])[:5]
-        comment = result[2]
+        comment = str(result[2])
         f.write(filename+'\t'+maxratio+'\t'+comment+'\n')
     f.close()
-
+    #print(time.time()-sTime)
 if __name__ == '__main__':
     main()
